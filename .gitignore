@@ -1,0 +1,20 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Database
+backend/data/*.db
+
+# Frontend build
+frontend/node_modules/
+frontend/dist/
+backend/static/
+
+# OS
+.DS_Store
