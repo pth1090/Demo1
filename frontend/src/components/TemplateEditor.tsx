@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTemplate, useUpdateTemplate, useCreateTemplate } from "../hooks/useTemplates";
-import { getExportUrl } from "../api/client";
+import { getExportUrl, getSymbolUrl, updateSymbol } from "../api/client";
 import type { TemplateField } from "../types";
 
 type Tab = "overview" | "signals" | "raw";
@@ -12,21 +12,31 @@ function getField(fields: TemplateField[], section: string | null, key: string):
   return fields.find((f) => f.section === section && f.key === key)?.value ?? "";
 }
 
+/** Returns the main device section: [{GUID}] — starts with { and ends with } */
 function deviceSection(fields: TemplateField[]): string | null {
-  const s = fields.find((f) => f.section?.startsWith("{") && f.section.endsWith("}"))?.section;
+  const s = fields.find(
+    (f) => f.section?.startsWith("{") && f.section.endsWith("}")
+  )?.section;
   return s ?? null;
 }
 
+/** Returns all signal sections: [{GUID}.SIGNAL_NAME] — starts with { and contains . */
 function signalSections(fields: TemplateField[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const f of fields) {
-    if (f.section?.startsWith("...") && !seen.has(f.section)) {
+    if (f.section?.startsWith("{") && f.section.includes(".") && !seen.has(f.section)) {
       seen.add(f.section);
       result.push(f.section);
     }
   }
   return result;
+}
+
+/** Extract display name from signal section: '{GUID}.COM_ERR' → 'COM_ERR' */
+function signalDisplayName(section: string): string {
+  const dot = section.indexOf(".");
+  return dot >= 0 ? section.slice(dot + 1) : section;
 }
 
 function buildList(fields: TemplateField[], section: string | null, prefix: string): string[] {
@@ -62,7 +72,7 @@ export default function TemplateEditor() {
   const isNew = id === "new";
   const templateId = isNew ? null : parseInt(id ?? "0", 10);
 
-  const { data: template, isLoading } = useTemplate(templateId);
+  const { data: template, isLoading, refetch } = useTemplate(templateId);
   const updateTemplate = useUpdateTemplate();
   const createTemplate = useCreateTemplate();
 
@@ -80,6 +90,11 @@ export default function TemplateEditor() {
 
   // New template form
   const [newName, setNewName] = useState("");
+
+  // Symbol upload
+  const symbolInputRef = useRef<HTMLInputElement>(null);
+  const [symbolUploading, setSymbolUploading] = useState(false);
+  const [symbolKey, setSymbolKey] = useState(0); // increment to force img reload
 
   useEffect(() => {
     if (template) {
@@ -112,7 +127,6 @@ export default function TemplateEditor() {
       return;
     }
 
-    // Rebuild fields array from fieldMap
     const fields = (template?.fields ?? []).map((f) => ({
       section: f.section,
       key: f.key,
@@ -127,13 +141,30 @@ export default function TemplateEditor() {
     setDirty(false);
   };
 
+  const handleSymbolUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !templateId) return;
+    setSymbolUploading(true);
+    try {
+      await updateSymbol(templateId, file);
+      setSymbolKey((k) => k + 1); // force img element to reload
+      await refetch();
+    } catch {
+      alert("Fehler beim Hochladen des Icons.");
+    } finally {
+      setSymbolUploading(false);
+      e.target.value = "";
+    }
+  };
+
   const devSec = template ? deviceSection(template.fields) : null;
   const signals = template ? signalSections(template.fields) : [];
   const inChannels = template ? buildList(template.fields, devSec, "In") : [];
   const outChannels = template ? buildList(template.fields, devSec, "Out") : [];
   const statusList = template ? buildStatusList(template.fields, devSec) : [];
+  const hasSymbol = template?.fields.some((f) => f.key === "Symbol" && f.value);
 
-  // ── Render new template form ──────────────────────────────────────────────
+  // ── New template form ──────────────────────────────────────────────────────
   if (isNew) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -211,118 +242,168 @@ export default function TemplateEditor() {
                   : "border-transparent text-gray-500 hover:text-gray-700"
               }`}
             >
-              {t === "overview" ? "Übersicht" : t === "signals" ? "Signale" : "Raw-Inhalt"}
+              {t === "overview" ? "Übersicht" : t === "signals" ? `Signale (${signals.length})` : "Raw-Inhalt"}
             </button>
           ))}
         </div>
       </div>
 
       <main className="flex-1 max-w-5xl mx-auto w-full px-6 py-6">
+
         {/* ── Overview Tab ── */}
         {tab === "overview" && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Basic info */}
-            <div className="bg-white rounded-lg border border-gray-200 p-5">
-              <h2 className="font-semibold text-gray-800 mb-4">Allgemein</h2>
-              <div className="space-y-3">
-                <FormField label="Name">
-                  <input
-                    className={inputCls}
-                    value={name}
-                    onChange={(e) => { setName(e.target.value); setDirty(true); }}
-                  />
-                </FormField>
-                <FormField label={lang === "de" ? "Beschreibung (DE)" : "Beschreibung (EN)"}>
-                  <textarea
-                    className={`${inputCls} resize-none`}
-                    rows={2}
-                    value={lang === "de"
-                      ? fieldVal(devSec, "Description")
-                      : fieldVal(devSec, "Description_ENU")}
-                    onChange={(e) =>
-                      setFieldVal(devSec, lang === "de" ? "Description" : "Description_ENU", e.target.value)
-                    }
-                  />
-                </FormField>
-                <FormField label="Klasse">
-                  <input className={inputCls} value={fieldVal(devSec, "ClassName")} readOnly />
-                </FormField>
-                <FormField label="Gerätetyp">
-                  <input
-                    className={inputCls}
-                    value={fieldVal(devSec, "DeviceType")}
-                    onChange={(e) => setFieldVal(devSec, "DeviceType", e.target.value)}
-                  />
-                </FormField>
-                <FormField label="Protokoll">
-                  <input
-                    className={inputCls}
-                    value={fieldVal(devSec, "Protocol")}
-                    onChange={(e) => setFieldVal(devSec, "Protocol", e.target.value)}
-                  />
-                </FormField>
-                <FormField label="IP-Adresse">
-                  <input
-                    className={inputCls}
-                    value={fieldVal(devSec, "mpIpAddr")}
-                    onChange={(e) => setFieldVal(devSec, "mpIpAddr", e.target.value)}
-                  />
-                </FormField>
-                <FormField label="IP-Port">
-                  <input
-                    className={inputCls}
-                    value={fieldVal(devSec, "mpIpPort")}
-                    onChange={(e) => setFieldVal(devSec, "mpIpPort", e.target.value)}
-                  />
-                </FormField>
+
+            {/* Left: Basic info */}
+            <div className="space-y-4">
+              <div className="bg-white rounded-lg border border-gray-200 p-5">
+                <div className="flex items-start gap-4 mb-4">
+                  {/* BMP Icon */}
+                  <div className="shrink-0">
+                    <div
+                      className="w-16 h-16 border border-gray-200 rounded bg-gray-50 flex items-center justify-center overflow-hidden cursor-pointer hover:border-blue-400 transition-colors"
+                      title="Klicken zum Ändern"
+                      onClick={() => symbolInputRef.current?.click()}
+                    >
+                      {hasSymbol ? (
+                        <img
+                          key={symbolKey}
+                          src={`${getSymbolUrl(template.id)}?v=${symbolKey}`}
+                          alt="Template-Icon"
+                          className="w-full h-full object-contain"
+                          style={{ imageRendering: "pixelated" }}
+                        />
+                      ) : (
+                        <span className="text-gray-300 text-xs text-center leading-tight px-1">Kein Icon</span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => symbolInputRef.current?.click()}
+                      disabled={symbolUploading}
+                      className="mt-1 w-16 text-xs text-center text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                    >
+                      {symbolUploading ? "..." : "Ändern"}
+                    </button>
+                    <input
+                      ref={symbolInputRef}
+                      type="file"
+                      accept=".bmp,.png,.jpg,.jpeg"
+                      className="hidden"
+                      onChange={handleSymbolUpload}
+                    />
+                  </div>
+
+                  {/* Name + Description */}
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <FormField label="Name">
+                      <input
+                        className={inputCls}
+                        value={name}
+                        onChange={(e) => { setName(e.target.value); setDirty(true); }}
+                      />
+                    </FormField>
+                    <FormField label={lang === "de" ? "Beschreibung (DE)" : "Beschreibung (EN)"}>
+                      <textarea
+                        className={`${inputCls} resize-none`}
+                        rows={2}
+                        value={lang === "de"
+                          ? fieldVal(devSec, "Description")
+                          : fieldVal(devSec, "Description_ENU")}
+                        onChange={(e) =>
+                          setFieldVal(devSec, lang === "de" ? "Description" : "Description_ENU", e.target.value)
+                        }
+                      />
+                    </FormField>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <FormField label="Klasse">
+                    <input className={inputCls} value={fieldVal(devSec, "ClassName")} readOnly />
+                  </FormField>
+                  <div className="grid grid-cols-2 gap-2">
+                    <FormField label="Gerätetyp">
+                      <input className={inputCls} value={fieldVal(devSec, "DeviceType")}
+                        onChange={(e) => setFieldVal(devSec, "DeviceType", e.target.value)} />
+                    </FormField>
+                    <FormField label="Protokoll">
+                      <input className={inputCls} value={fieldVal(devSec, "Protocol")}
+                        onChange={(e) => setFieldVal(devSec, "Protocol", e.target.value)} />
+                    </FormField>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <FormField label="IP-Adresse">
+                      <input className={inputCls} value={fieldVal(devSec, "mpIpAddr")}
+                        onChange={(e) => setFieldVal(devSec, "mpIpAddr", e.target.value)} />
+                    </FormField>
+                    <FormField label="IP-Port">
+                      <input className={inputCls} value={fieldVal(devSec, "mpIpPort")}
+                        onChange={(e) => setFieldVal(devSec, "mpIpPort", e.target.value)} />
+                    </FormField>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <FormField label="Baud">
+                      <input className={inputCls} value={fieldVal(devSec, "mpSSBaud")}
+                        onChange={(e) => setFieldVal(devSec, "mpSSBaud", e.target.value)} />
+                    </FormField>
+                    <FormField label="Parity">
+                      <input className={inputCls} value={fieldVal(devSec, "mpSSParity")}
+                        onChange={(e) => setFieldVal(devSec, "mpSSParity", e.target.value)} />
+                    </FormField>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Channels + Status */}
+            {/* Right: Channels + Status */}
             <div className="space-y-4">
-              {/* In/Out channels */}
               <div className="bg-white rounded-lg border border-gray-200 p-5">
                 <h2 className="font-semibold text-gray-800 mb-3">Kanäle</h2>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-xs font-medium text-gray-500 uppercase mb-2">Eingänge</p>
+                    <p className="text-xs font-medium text-gray-500 uppercase mb-2">Eingänge ({inChannels.length})</p>
                     <div className="space-y-1">
                       {inChannels.length === 0
                         ? <span className="text-gray-400 text-sm">—</span>
-                        : inChannels.map((ch) => (
-                          <span key={ch}
-                            className="block text-sm px-2 py-1 bg-blue-50 text-blue-700 rounded cursor-pointer hover:bg-blue-100"
-                            onClick={() => { setTab("signals"); setSelectedSignal(`...${ch}`); }}
-                          >{ch}</span>
-                        ))}
+                        : inChannels.map((ch) => {
+                          const sec = signals.find((s) => s.endsWith(`.${ch}`));
+                          return (
+                            <span key={ch}
+                              className="block text-sm px-2 py-1 bg-blue-50 text-blue-700 rounded cursor-pointer hover:bg-blue-100"
+                              onClick={() => { if (sec) { setTab("signals"); setSelectedSignal(sec); } }}
+                            >{ch}</span>
+                          );
+                        })}
                     </div>
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-gray-500 uppercase mb-2">Ausgänge</p>
+                    <p className="text-xs font-medium text-gray-500 uppercase mb-2">Ausgänge ({outChannels.length})</p>
                     <div className="space-y-1">
                       {outChannels.length === 0
                         ? <span className="text-gray-400 text-sm">—</span>
-                        : outChannels.map((ch) => (
-                          <span key={ch}
-                            className="block text-sm px-2 py-1 bg-green-50 text-green-700 rounded cursor-pointer hover:bg-green-100"
-                            onClick={() => { setTab("signals"); setSelectedSignal(`...${ch}`); }}
-                          >{ch}</span>
-                        ))}
+                        : outChannels.map((ch) => {
+                          const sec = signals.find((s) => s.endsWith(`.${ch}`));
+                          return (
+                            <span key={ch}
+                              className="block text-sm px-2 py-1 bg-green-50 text-green-700 rounded cursor-pointer hover:bg-green-100"
+                              onClick={() => { if (sec) { setTab("signals"); setSelectedSignal(sec); } }}
+                            >{ch}</span>
+                          );
+                        })}
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Status table */}
               {statusList.length > 0 && (
                 <div className="bg-white rounded-lg border border-gray-200 p-5">
                   <h2 className="font-semibold text-gray-800 mb-3">Status-Werte</h2>
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-xs text-gray-500 border-b">
-                        <th className="text-left pb-1">Wert</th>
-                        <th className="text-left pb-1">Text DE</th>
-                        <th className="text-left pb-1">Text EN</th>
+                        <th className="text-left pb-1 font-medium">Wert</th>
+                        <th className="text-left pb-1 font-medium">Text DE</th>
+                        <th className="text-left pb-1 font-medium">Text EN</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -346,7 +427,9 @@ export default function TemplateEditor() {
           <div className="flex gap-6">
             {/* Signal list */}
             <div className="w-48 shrink-0">
-              <h2 className="text-xs font-medium text-gray-500 uppercase mb-2">Signale</h2>
+              <h2 className="text-xs font-medium text-gray-500 uppercase mb-2">
+                Signale ({signals.length})
+              </h2>
               <div className="space-y-1">
                 {signals.map((sig) => (
                   <button
@@ -358,7 +441,7 @@ export default function TemplateEditor() {
                         : "text-gray-700 hover:bg-gray-100"
                     }`}
                   >
-                    {sig.replace("...", "")}
+                    {signalDisplayName(sig)}
                   </button>
                 ))}
                 {signals.length === 0 && (
@@ -369,28 +452,21 @@ export default function TemplateEditor() {
 
             {/* Signal detail */}
             {selectedSignal && (
-              <div className="flex-1 bg-white rounded-lg border border-gray-200 p-5">
+              <div className="flex-1 bg-white rounded-lg border border-gray-200 p-5 overflow-auto">
                 <h2 className="font-semibold text-gray-800 mb-4">
-                  Signal: <span className="font-mono text-blue-700">{selectedSignal.replace("...", "")}</span>
+                  Signal:{" "}
+                  <span className="font-mono text-blue-700">{signalDisplayName(selectedSignal)}</span>
                 </h2>
-                <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {template.fields
                     .filter((f) => f.section === selectedSignal)
                     .map((f) => (
                       <FormField key={f.key} label={f.key}>
-                        {f.key.startsWith("Namur.") ? (
-                          <input
-                            className={`${inputCls} font-mono text-xs`}
-                            value={fieldVal(selectedSignal, f.key)}
-                            onChange={(e) => setFieldVal(selectedSignal, f.key, e.target.value)}
-                          />
-                        ) : (
-                          <input
-                            className={inputCls}
-                            value={fieldVal(selectedSignal, f.key)}
-                            onChange={(e) => setFieldVal(selectedSignal, f.key, e.target.value)}
-                          />
-                        )}
+                        <input
+                          className={`${inputCls} ${f.key.startsWith("Namur.") || f.key.startsWith("mp") ? "font-mono text-xs" : ""}`}
+                          value={fieldVal(selectedSignal, f.key)}
+                          onChange={(e) => setFieldVal(selectedSignal, f.key, e.target.value)}
+                        />
                       </FormField>
                     ))}
                 </div>
@@ -460,7 +536,9 @@ function EditorHeader({
           <span className="text-white text-xs font-bold">HZ</span>
         </div>
         <span className="font-semibold text-gray-900 truncate">{title}</span>
-        {dirty && <span className="w-2 h-2 rounded-full bg-orange-400 shrink-0" title="Ungespeicherte Änderungen" />}
+        {dirty && (
+          <span className="w-2 h-2 rounded-full bg-orange-400 shrink-0" title="Ungespeicherte Änderungen" />
+        )}
       </div>
       <div className="flex items-center gap-2">
         {onLangToggle && (

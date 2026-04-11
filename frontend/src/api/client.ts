@@ -43,6 +43,14 @@ export const parsePreview = (file: File): Promise<ParsePreviewResponse> => {
 
 export const getExportUrl = (id: number): string => `/api/v1/templates/${id}/export`;
 
+export const getSymbolUrl = (id: number): string => `/api/v1/templates/${id}/symbol`;
+
+export const updateSymbol = (id: number, file: File): Promise<void> => {
+  const form = new FormData();
+  form.append("file", file);
+  return api.put(`/templates/${id}/symbol`, form).then(() => undefined);
+};
+
 // ── Schema Configs ─────────────────────────────────────────────────────────────
 
 export const getSchemaConfigs = (): Promise<SchemaConfig[]> =>

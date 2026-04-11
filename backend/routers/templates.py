@@ -1,3 +1,5 @@
+import io
+from PIL import Image
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -154,6 +156,83 @@ async def delete_template(template_id: int, db: AsyncSession = Depends(get_db)):
     if not tpl:
         raise HTTPException(404, "Template nicht gefunden")
     await db.delete(tpl)
+    await db.commit()
+
+
+@router.get("/{template_id}/symbol")
+async def get_symbol(template_id: int, db: AsyncSession = Depends(get_db)):
+    """Return the BMP icon of a template as an image."""
+    result = await db.execute(
+        select(TemplateField).where(
+            TemplateField.template_id == template_id,
+            TemplateField.key == "Symbol",
+        )
+    )
+    field = result.scalar_one_or_none()
+    if not field or not field.value:
+        raise HTTPException(404, "Kein Symbol vorhanden")
+    try:
+        bmp_bytes = bytes.fromhex(field.value.strip())
+    except ValueError:
+        raise HTTPException(422, "Symbol-Daten ungültig")
+    return Response(content=bmp_bytes, media_type="image/bmp")
+
+
+@router.put("/{template_id}/symbol", status_code=204)
+async def update_symbol(
+    template_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace the BMP icon. Accepts BMP/PNG/JPG — resizes to 23×23 and converts to BMP hex."""
+    result = await db.execute(
+        select(Template).options(selectinload(Template.fields)).where(Template.id == template_id)
+    )
+    tpl = result.scalar_one_or_none()
+    if not tpl:
+        raise HTTPException(404, "Template nicht gefunden")
+
+    raw = await file.read()
+    try:
+        img = Image.open(io.BytesIO(raw)).convert("RGB")
+    except Exception:
+        raise HTTPException(422, "Datei konnte nicht als Bild geöffnet werden")
+
+    img = img.resize((23, 23), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="BMP")
+    hex_value = buf.getvalue().hex().upper()
+
+    # Find existing Symbol field or create one
+    sym_field = next((f for f in tpl.fields if f.key == "Symbol"), None)
+    if sym_field:
+        sym_field.value = hex_value
+    else:
+        # Find device section to attach field to
+        dev_sec = next(
+            (f.section for f in tpl.fields if f.section and f.section.startswith("{") and f.section.endswith("}")),
+            "",
+        )
+        max_order = max((f.field_order for f in tpl.fields), default=0) + 1
+        db.add(TemplateField(
+            template_id=template_id,
+            section=dev_sec,
+            key="Symbol",
+            value=hex_value,
+            field_order=max_order,
+        ))
+
+    # Also update raw_content so export stays consistent
+    if tpl.raw_content and "Symbol=" in tpl.raw_content:
+        lines = tpl.raw_content.splitlines()
+        new_lines = []
+        for line in lines:
+            if line.startswith("Symbol="):
+                new_lines.append(f"Symbol={hex_value}")
+            else:
+                new_lines.append(line)
+        tpl.raw_content = "\n".join(new_lines)
+
     await db.commit()
 
 

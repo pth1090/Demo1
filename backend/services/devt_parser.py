@@ -2,21 +2,20 @@
 Parser for the HiTec-Zang .devt file format.
 
 Format overview:
-  [HiTec-Zang]        - File header
-  [{GUID}]            - Device definition section
-  [...SIGNAL]         - Signal/channel section (dot-prefix)
-  [DeviceList]        - Device index
+  [HiTec-Zang]              - File header (SavedWithVersion, ExportDate)
+  [{GUID}]                  - Device definition section (main parameters)
+  [{GUID}.SIGNAL_NAME]      - Signal/channel section
+  [DeviceList]              - Device index
 
 Special encoding rules:
-  - Pipe-separated values:  key=val | key2=val2
-  - List encoding:          In.ListCount=2 / In.List0=W / In.List1=X
-  - Status blocks:          Status.Count=3 / Status.Value0=0 / Status.Text0=Aus
-  - Bilingual fields:       Name= (DE) / Name_ENU= (EN)
-  - Symbol field:           BMP hex blob, stored as-is
+  - List encoding:    In.ListCount=2 / In.List0=W / In.List1=X
+  - Status blocks:    Status.Count=3 / Status.Value0=0 / Status.Text0=Aus
+  - Namur commands:   Namur.Count=1 / Namur.mpNXSendStr0=:06...
+  - Bilingual fields: Name= (DE) / Name_ENU= (EN)
+  - Symbol field:     BMP data as uppercase hex string
 """
 
 from __future__ import annotations
-import re
 from dataclasses import dataclass, field
 
 
@@ -38,10 +37,17 @@ class DevtDocument:
         return [f for f in self.fields if f.section == section]
 
     def device_sections(self) -> list[str]:
+        """Sections of the form {GUID} — no dot, ends with }."""
         return [s for s in self.sections if s.startswith("{") and s.endswith("}")]
 
     def signal_sections(self) -> list[str]:
-        return [s for s in self.sections if s.startswith("...")]
+        """Sections of the form {GUID}.SIGNAL_NAME."""
+        return [s for s in self.sections if s.startswith("{") and "." in s]
+
+    def signal_name(self, section: str) -> str:
+        """Extract the signal name: '{GUID}.W' → 'W'."""
+        dot = section.find(".")
+        return section[dot + 1:] if dot >= 0 else section
 
 
 def parse(content: str) -> DevtDocument:
@@ -51,7 +57,13 @@ def parse(content: str) -> DevtDocument:
 
     for raw_line in content.splitlines():
         line = raw_line.strip()
-        if not line or line.startswith(";") or line.startswith("#"):
+
+        # Skip blank lines and comment lines (lines that start with ; or #)
+        if not line or line.startswith(";"):
+            continue
+        # Lines starting with # are comments ONLY if no = present
+        # (LargeDescription values contain #13#10 escape sequences)
+        if line.startswith("#") and "=" not in line:
             continue
 
         # Section header
@@ -61,36 +73,16 @@ def parse(content: str) -> DevtDocument:
                 doc.sections.append(current_section)
             continue
 
-        # Key=Value (may contain pipe-separated sub-pairs)
+        # Key=Value — split only on first = to preserve = in values
         if "=" in line:
-            key, _, rest = line.partition("=")
-            key = key.strip()
-            rest = rest.strip()
-
-            # Pipe-separated values: key=val | key2=val2 | key3=val3
-            if "|" in rest and not key.startswith("Namur."):
-                pairs = [p.strip() for p in rest.split("|")]
-                # First pair is the primary value for this key
-                doc.fields.append(DevtField(
-                    section=current_section, key=key, value=pairs[0], field_order=order
-                ))
-                order += 1
-                # Remaining pairs are additional key=value entries
-                for extra in pairs[1:]:
-                    if "=" in extra:
-                        ekey, _, eval_ = extra.partition("=")
-                        doc.fields.append(DevtField(
-                            section=current_section,
-                            key=ekey.strip(),
-                            value=eval_.strip(),
-                            field_order=order,
-                        ))
-                        order += 1
-            else:
-                doc.fields.append(DevtField(
-                    section=current_section, key=key, value=rest, field_order=order
-                ))
-                order += 1
+            key, _, value = line.partition("=")
+            doc.fields.append(DevtField(
+                section=current_section,
+                key=key.strip(),
+                value=value,   # preserve trailing whitespace / escape sequences as-is
+                field_order=order,
+            ))
+            order += 1
 
     return doc
 

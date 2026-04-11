@@ -4,3 +4,4 @@ sqlalchemy[asyncio]==2.0.30
 aiosqlite==0.20.0
 python-multipart==0.0.9
 pydantic==2.7.1
+Pillow>=10.0.0
