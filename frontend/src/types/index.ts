@@ -1,3 +1,23 @@
+export interface CurrentUser {
+  id: number;
+  email: string;
+  display_name: string;
+  is_admin: boolean;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  user: CurrentUser;
+}
+
+export interface Comment {
+  id: number;
+  body: string;
+  created_at: string;
+  author: CurrentUser;
+}
+
 export interface TemplateField {
   id: number;
   section: string | null;
@@ -10,6 +30,9 @@ export interface TemplateSummary {
   id: number;
   name: string;
   description: string | null;
+  is_public: boolean;
+  owner_id: number;
+  owner: CurrentUser;
   created_at: string;
   updated_at: string;
 }
@@ -17,6 +40,7 @@ export interface TemplateSummary {
 export interface Template extends TemplateSummary {
   raw_content: string | null;
   fields: TemplateField[];
+  comments: Comment[];
 }
 
 export interface FieldDef {

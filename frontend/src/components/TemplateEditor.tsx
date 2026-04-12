@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTemplate, useUpdateTemplate, useCreateTemplate } from "../hooks/useTemplates";
-import { getExportUrl } from "../api/client";
+import { getExportUrl, setTemplateVisibility, forkTemplate } from "../api/client";
 import { bmpHexToPngDataUrl, imageFileToBmpHex } from "../utils/bmp";
+import { useAuth } from "../hooks/useAuth";
+import { useQueryClient } from "@tanstack/react-query";
+import CommentsPanel from "./CommentsPanel";
 import type { TemplateField } from "../types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -211,6 +214,8 @@ function newPin(devSec: string): Pin {
 export default function TemplateEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
   const isNew = id === "new";
   const templateId = isNew ? null : parseInt(id ?? "0", 10);
 
@@ -221,6 +226,9 @@ export default function TemplateEditor() {
   // ── State ──────────────────────────────────────────────────────────────────
   const [templateName, setTemplateName] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [isPublic, setIsPublic] = useState(false);
+  const [visibilityPending, setVisibilityPending] = useState(false);
+  const [forkPending, setForkPending] = useState(false);
   const [devSec, setDevSec] = useState<string | null>(null);
   const [devFieldMap, setDevFieldMap] = useState<Record<string, string>>({});
   const [pins, setPins] = useState<Pin[]>([]);
@@ -252,6 +260,7 @@ export default function TemplateEditor() {
     setIconDataUrl(sym ? bmpHexToPngDataUrl(sym) : null);
 
     setPins(signalSections(template.fields).map((sec) => extractPin(sec, template.fields)));
+    setIsPublic(template.is_public);
   }, [template]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -308,6 +317,40 @@ export default function TemplateEditor() {
       alert("Bild konnte nicht verarbeitet werden.");
     }
     e.target.value = "";
+  };
+
+  // ── Access helpers ─────────────────────────────────────────────────────────
+  const isOwner = !template || user?.id === template.owner_id || user?.is_admin === true;
+  const readOnly = !isNew && !isOwner;
+
+  // ── Visibility toggle ──────────────────────────────────────────────────────
+  const handleVisibilityToggle = async () => {
+    if (!template || !isOwner) return;
+    setVisibilityPending(true);
+    try {
+      const updated = await setTemplateVisibility(template.id, !isPublic);
+      setIsPublic(updated.is_public);
+      queryClient.invalidateQueries({ queryKey: ["templates"] });
+    } catch {
+      alert("Sichtbarkeit konnte nicht geändert werden.");
+    } finally {
+      setVisibilityPending(false);
+    }
+  };
+
+  // ── Fork ───────────────────────────────────────────────────────────────────
+  const handleFork = async () => {
+    if (!template) return;
+    setForkPending(true);
+    try {
+      const forked = await forkTemplate(template.id);
+      queryClient.invalidateQueries({ queryKey: ["templates"] });
+      navigate(`/templates/${forked.id}`);
+    } catch {
+      alert("Fehler beim Kopieren des Templates.");
+    } finally {
+      setForkPending(false);
+    }
   };
 
   // ── Save ───────────────────────────────────────────────────────────────────
@@ -416,6 +459,10 @@ export default function TemplateEditor() {
         title={template.name}
         dirty={dirty}
         saving={updateTemplate.isPending}
+        readOnly={readOnly}
+        isPublic={isPublic}
+        visibilityPending={visibilityPending}
+        onVisibilityToggle={isOwner ? handleVisibilityToggle : undefined}
         onSave={handleSave}
         onBack={() => navigate("/")}
         exportUrl={getExportUrl(template.id)}
@@ -425,17 +472,42 @@ export default function TemplateEditor() {
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
 
+        {/* ── Fork banner for read-only public templates ── */}
+        {readOnly && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-amber-800">Schreibgeschützt</p>
+              <p className="text-xs text-amber-600 mt-0.5">
+                Dieser Treiber gehört <strong>{template.owner.display_name}</strong>.
+                Erstelle eine Kopie in deinem privaten Bereich, um ihn zu bearbeiten.
+              </p>
+            </div>
+            <button
+              onClick={handleFork}
+              disabled={forkPending}
+              className="shrink-0 px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50
+                         text-white text-sm rounded-lg transition-colors flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              {forkPending ? "Wird kopiert…" : "Als Kopie übernehmen"}
+            </button>
+          </div>
+        )}
+
         {/* ── Card 1: Gerät & Icon ── */}
-        <div className="card">
+        <fieldset disabled={readOnly} className="card [&:disabled_input]:bg-gray-50 [&:disabled_input]:text-gray-600 [&:disabled_input]:cursor-default [&:disabled_select]:bg-gray-50 [&:disabled_select]:cursor-default">
           <SectionLabel>Gerät & Icon</SectionLabel>
 
           {/* Icon box */}
           <div className="flex items-start gap-4 p-3 bg-[#f8f8f6] rounded-lg mb-4">
             <div>
               <div
-                className="w-[69px] h-[69px] border border-dashed border-gray-300 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden cursor-pointer hover:border-blue-400 transition-colors"
-                onClick={() => iconInputRef.current?.click()}
-                title="Klicken zum Ändern"
+                className={`w-[69px] h-[69px] border border-dashed border-gray-300 rounded-lg bg-gray-100 flex items-center justify-center overflow-hidden transition-colors ${readOnly ? "cursor-default" : "cursor-pointer hover:border-blue-400"}`}
+                onClick={() => !readOnly && iconInputRef.current?.click()}
+                title={readOnly ? "" : "Klicken zum Ändern"}
               >
                 {iconDataUrl
                   ? <img src={iconDataUrl} className="w-full h-full object-contain" style={{ imageRendering: "pixelated" }} alt="Icon" />
@@ -445,10 +517,14 @@ export default function TemplateEditor() {
             </div>
             <div>
               <p className="text-sm font-medium mb-2">Geräte-Icon</p>
-              <button className="btn-s" onClick={() => iconInputRef.current?.click()}>
-                Icon ersetzen
-              </button>
-              <input ref={iconInputRef} type="file" accept="image/*" className="hidden" onChange={handleIconUpload} />
+              {!readOnly && (
+                <>
+                  <button className="btn-s" onClick={() => iconInputRef.current?.click()}>
+                    Icon ersetzen
+                  </button>
+                  <input ref={iconInputRef} type="file" accept="image/*" className="hidden" onChange={handleIconUpload} />
+                </>
+              )}
               <p className="text-[11px] text-gray-400 mt-2 max-w-[180px]">
                 PNG, JPG oder BMP — wird auf 23×23 px skaliert.
               </p>
@@ -536,10 +612,10 @@ export default function TemplateEditor() {
                 onChange={(e) => setDev("mpIpPort", e.target.value)} />
             </Field>
           </div>
-        </div>
+        </fieldset>
 
         {/* ── Card 2: Datenpunkte ── */}
-        <div className="card">
+        <fieldset disabled={readOnly} className="card [&:disabled_input]:bg-gray-50 [&:disabled_input]:text-gray-600 [&:disabled_select]:bg-gray-50">
           {/* Toolbar */}
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <SectionLabel className="mb-0">Datenpunkte</SectionLabel>
@@ -557,10 +633,12 @@ export default function TemplateEditor() {
                 {f === "all" ? `Alle (${pins.length})` : f === "read" ? `Lesen (${readCount})` : f === "write" ? `Schreiben (${writeCount})` : `Ein/Aus (${onoffCount})`}
               </button>
             ))}
-            <button onClick={handleAddPin}
-              className="ml-auto px-3 py-1 border border-gray-300 rounded-lg text-xs bg-white hover:bg-gray-50">
-              + Pin hinzufügen
-            </button>
+            {!readOnly && (
+              <button onClick={handleAddPin}
+                className="ml-auto px-3 py-1 border border-gray-300 rounded-lg text-xs bg-white hover:bg-gray-50">
+                + Pin hinzufügen
+              </button>
+            )}
           </div>
 
           {/* Pin list */}
@@ -573,6 +651,7 @@ export default function TemplateEditor() {
                 key={pin.id}
                 pin={pin}
                 open={expanded.has(pin.id)}
+                readOnly={readOnly}
                 onToggle={() => toggleExpand(pin.id)}
                 onChange={(patch) => { setPin(pin.id, patch); mark(); }}
                 onNamur={(i, patch) => { setNamur(pin.id, i, patch); mark(); }}
@@ -580,13 +659,20 @@ export default function TemplateEditor() {
               />
             ))}
           </div>
-        </div>
+        </fieldset>
 
         {/* Stats footer */}
-        <p className="text-xs text-gray-400 text-center pb-4">
+        <p className="text-xs text-gray-400 text-center pb-2">
           {pins.length} Datenpunkte · {readCount} Lesen · {writeCount} Schreiben · {onoffCount} Ein/Aus
           {baud ? ` · ${baud} Baud` : ""}
         </p>
+
+        {/* ── Kommentare ── */}
+        <div className="card bg-gray-900 text-white">
+          <CommentsPanel templateId={template.id} />
+        </div>
+
+        <div className="pb-8" />
       </div>
     </div>
   );
@@ -594,9 +680,10 @@ export default function TemplateEditor() {
 
 // ── PinCard ───────────────────────────────────────────────────────────────────
 
-function PinCard({ pin, open, onToggle, onChange, onNamur, onDelete }: {
+function PinCard({ pin, open, readOnly, onToggle, onChange, onNamur, onDelete }: {
   pin: Pin;
   open: boolean;
+  readOnly?: boolean;
   onToggle: () => void;
   onChange: (patch: Partial<Pin>) => void;
   onNamur: (i: number, patch: Partial<NamurCmd>) => void;
@@ -753,13 +840,15 @@ function PinCard({ pin, open, onToggle, onChange, onNamur, onDelete }: {
             </Field>
           </div>
 
-          <div className="flex justify-end pt-1">
-            <button
-              onClick={onDelete}
-              className="px-3 py-1 border border-red-200 text-red-600 text-xs rounded-lg hover:bg-red-50">
-              Pin löschen
-            </button>
-          </div>
+          {!readOnly && (
+            <div className="flex justify-end pt-1">
+              <button
+                onClick={onDelete}
+                className="px-3 py-1 border border-red-200 text-red-600 text-xs rounded-lg hover:bg-red-50">
+                Pin löschen
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -768,9 +857,14 @@ function PinCard({ pin, open, onToggle, onChange, onNamur, onDelete }: {
 
 // ── Top bar ────────────────────────────────────────────────────────────────────
 
-function TopBar({ title, dirty, saving, onSave, onBack, exportUrl, exportName, iconUrl }: {
+function TopBar({
+  title, dirty, saving, readOnly, isPublic, visibilityPending,
+  onSave, onBack, onVisibilityToggle, exportUrl, exportName, iconUrl,
+}: {
   title: string; dirty: boolean; saving: boolean;
+  readOnly?: boolean; isPublic?: boolean; visibilityPending?: boolean;
   onSave: () => void; onBack: () => void;
+  onVisibilityToggle?: () => void;
   exportUrl?: string; exportName?: string; iconUrl?: string | null;
 }) {
   return (
@@ -797,10 +891,42 @@ function TopBar({ title, dirty, saving, onSave, onBack, exportUrl, exportName, i
             Export .devt
           </a>
         )}
-        <button onClick={onSave} disabled={saving}
-          className="px-4 py-1.5 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 disabled:opacity-50">
-          {saving ? "Speichern…" : "Speichern"}
-        </button>
+        {/* Visibility toggle — owner only */}
+        {onVisibilityToggle && (
+          <button
+            onClick={onVisibilityToggle}
+            disabled={visibilityPending}
+            title={isPublic ? "Auf privat setzen" : "Öffentlich teilen"}
+            className={`px-3 py-1.5 border rounded-lg text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50 ${
+              isPublic
+                ? "border-green-300 text-green-700 bg-green-50 hover:bg-green-100"
+                : "border-gray-200 text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            {isPublic ? (
+              <>
+                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+                  <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+                </svg>
+                Öffentlich
+              </>
+            ) : (
+              <>
+                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                </svg>
+                Privat
+              </>
+            )}
+          </button>
+        )}
+        {!readOnly && (
+          <button onClick={onSave} disabled={saving}
+            className="px-4 py-1.5 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 disabled:opacity-50">
+            {saving ? "Speichern…" : "Speichern"}
+          </button>
+        )}
       </div>
     </header>
   );
@@ -809,6 +935,7 @@ function TopBar({ title, dirty, saving, onSave, onBack, exportUrl, exportName, i
 // ── Tiny shared components ────────────────────────────────────────────────────
 
 const inp = "w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm outline-none focus:border-blue-400 bg-white";
+const inpRO = "w-full px-2.5 py-1.5 border border-gray-100 rounded-lg text-sm bg-gray-50 text-gray-600 cursor-default";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

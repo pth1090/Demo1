@@ -1,7 +1,46 @@
 import axios from "axios";
-import type { Template, TemplateSummary, SchemaConfig, ParsePreviewResponse } from "../types";
+import type {
+  Template, TemplateSummary, SchemaConfig, ParsePreviewResponse,
+  TokenResponse, CurrentUser, Comment,
+} from "../types";
 
 const api = axios.create({ baseURL: "/api/v1" });
+
+// ── Auth token injection ────────────────────────────────────────────────────────
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("auth_token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// On 401 clear token — the AuthContext will detect the missing user on next render
+api.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    if (err.response?.status === 401) {
+      localStorage.removeItem("auth_token");
+    }
+    return Promise.reject(err);
+  }
+);
+
+// ── Auth ───────────────────────────────────────────────────────────────────────
+
+export const loginUser = (email: string, password: string): Promise<TokenResponse> =>
+  api.post("/auth/login", { email, password }).then((r) => r.data);
+
+export const registerUser = (data: {
+  email: string;
+  password: string;
+  display_name: string;
+}): Promise<TokenResponse> =>
+  api.post("/auth/register", data).then((r) => r.data);
+
+export const getCurrentUser = (): Promise<CurrentUser> =>
+  api.get("/auth/me").then((r) => r.data);
 
 // ── Templates ──────────────────────────────────────────────────────────────────
 
@@ -41,6 +80,15 @@ export const parsePreview = (file: File): Promise<ParsePreviewResponse> => {
   return api.post("/templates/parse-preview", form).then((r) => r.data);
 };
 
+export const setTemplateVisibility = (
+  id: number,
+  is_public: boolean
+): Promise<TemplateSummary> =>
+  api.patch(`/templates/${id}/visibility`, { is_public }).then((r) => r.data);
+
+export const forkTemplate = (id: number): Promise<Template> =>
+  api.post(`/templates/${id}/fork`).then((r) => r.data);
+
 export const getExportUrl = (id: number): string => `/api/v1/templates/${id}/export`;
 
 export const getSymbolUrl = (id: number): string => `/api/v1/templates/${id}/symbol`;
@@ -50,6 +98,17 @@ export const updateSymbol = (id: number, file: File): Promise<void> => {
   form.append("file", file);
   return api.put(`/templates/${id}/symbol`, form).then(() => undefined);
 };
+
+// ── Comments ───────────────────────────────────────────────────────────────────
+
+export const getComments = (templateId: number): Promise<Comment[]> =>
+  api.get(`/templates/${templateId}/comments`).then((r) => r.data);
+
+export const createComment = (templateId: number, body: string): Promise<Comment> =>
+  api.post(`/templates/${templateId}/comments`, { body }).then((r) => r.data);
+
+export const deleteComment = (templateId: number, commentId: number): Promise<void> =>
+  api.delete(`/templates/${templateId}/comments/${commentId}`).then(() => undefined);
 
 // ── Schema Configs ─────────────────────────────────────────────────────────────
 

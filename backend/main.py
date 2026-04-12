@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from database import init_db
 from routers import templates, schema_config
+from routers import auth, comments
 
 
 @asynccontextmanager
@@ -17,25 +18,30 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="HiTec-Zang Template Editor",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
+cors_raw = os.getenv("CORS_ORIGINS", "")
+allow_origins = [o.strip() for o in cors_raw.split(",") if o.strip()] or ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allow_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # API routes
+app.include_router(auth.router, prefix="/api/v1")
 app.include_router(templates.router, prefix="/api/v1")
 app.include_router(schema_config.router, prefix="/api/v1")
+app.include_router(comments.router, prefix="/api/v1")
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "1.0.0"}
+    return {"status": "ok", "version": "2.0.0"}
 
 
 # Serve React frontend (production build)
