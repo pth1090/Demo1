@@ -1,22 +1,50 @@
 version: "3.9"
 
 services:
+  traefik:
+    image: traefik:v3.0
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/traefik.yml:ro
+      - ./traefik/dynamic.yml:/dynamic.yml:ro
+      - traefik-certs:/letsencrypt
+    environment:
+      - ACME_EMAIL=${ACME_EMAIL}
+
   backend:
     build:
       context: .
       dockerfile: backend/Dockerfile
-    ports:
-      - "${PORT:-8000}:8000"
+    expose:
+      - "8000"
     volumes:
       - ./backend/data:/app/data
     environment:
-      - PORT=${PORT:-8000}
       - DB_PATH=${DB_PATH:-data/templates.db}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - JWT_SECRET=${JWT_SECRET}
       - ACCESS_TOKEN_EXPIRE_HOURS=${ACCESS_TOKEN_EXPIRE_HOURS:-8}
-      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - CORS_ORIGINS=https://srv1553019.hstgr.cloud
     restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      # Haupt-Router
+      - "traefik.http.routers.app.rule=Host(`srv1553019.hstgr.cloud`)"
+      - "traefik.http.routers.app.entrypoints=websecure"
+      - "traefik.http.routers.app.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.app.middlewares=secure-headers@file"
+      - "traefik.http.services.app.loadbalancer.server.port=8000"
+      # Auth-Router mit Rate-Limit (höhere Priorität)
+      - "traefik.http.routers.auth.rule=Host(`srv1553019.hstgr.cloud`) && PathPrefix(`/api/v1/auth`)"
+      - "traefik.http.routers.auth.entrypoints=websecure"
+      - "traefik.http.routers.auth.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.auth.middlewares=secure-headers@file,rate-limit-auth@file"
+      - "traefik.http.routers.auth.priority=10"
+      - "traefik.http.services.auth.loadbalancer.server.port=8000"
 
   frontend-dev:
     image: node:20-alpine
@@ -28,3 +56,6 @@ services:
     command: sh -c "npm install && npm run dev -- --host"
     profiles:
       - dev
+
+volumes:
+  traefik-certs:
