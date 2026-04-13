@@ -230,7 +230,7 @@ export default function SchemaConfigPanel() {
               </button>
               <button
                 onClick={handleSave}
-                disabled={createConfig.isPending || updateConfig.isPending}
+                disabled={updateConfig.isPending}
                 className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
               >
                 Speichern
