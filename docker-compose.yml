@@ -1,20 +1,6 @@
 version: "3.9"
 
 services:
-  traefik:
-    image: traefik:v2.11
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/traefik.yml:/traefik.yml:ro
-      - ./traefik/dynamic.yml:/dynamic.yml:ro
-      - traefik-certs:/letsencrypt
-    environment:
-      - ACME_EMAIL=${ACME_EMAIL}
-
   backend:
     build:
       context: .
@@ -30,21 +16,34 @@ services:
       - ACCESS_TOKEN_EXPIRE_HOURS=${ACCESS_TOKEN_EXPIRE_HOURS:-8}
       - CORS_ORIGINS=https://srv1553019.hstgr.cloud
     restart: unless-stopped
+    networks:
+      - traefik_net
     labels:
       - "traefik.enable=true"
-      # Haupt-Router
-      - "traefik.http.routers.app.rule=Host(`srv1553019.hstgr.cloud`)"
-      - "traefik.http.routers.app.entrypoints=websecure"
-      - "traefik.http.routers.app.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.app.middlewares=secure-headers@file"
-      - "traefik.http.services.app.loadbalancer.server.port=8000"
-      # Auth-Router mit Rate-Limit (höhere Priorität)
-      - "traefik.http.routers.auth.rule=Host(`srv1553019.hstgr.cloud`) && PathPrefix(`/api/v1/auth`)"
-      - "traefik.http.routers.auth.entrypoints=websecure"
-      - "traefik.http.routers.auth.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.auth.middlewares=secure-headers@file,rate-limit-auth@file"
-      - "traefik.http.routers.auth.priority=10"
-      - "traefik.http.services.auth.loadbalancer.server.port=8000"
+      - "traefik.docker.network=traefik_default"
+      # Inline security-headers middleware
+      - "traefik.http.middlewares.demo1-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.demo1-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.demo1-headers.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.demo1-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.demo1-headers.headers.frameDeny=true"
+      - "traefik.http.middlewares.demo1-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
+      # Inline rate-limit middleware for auth endpoints
+      - "traefik.http.middlewares.demo1-ratelimit.rateLimit.average=10"
+      - "traefik.http.middlewares.demo1-ratelimit.rateLimit.burst=5"
+      # Main app router
+      - "traefik.http.routers.demo1-app.rule=Host(`srv1553019.hstgr.cloud`)"
+      - "traefik.http.routers.demo1-app.entrypoints=websecure"
+      - "traefik.http.routers.demo1-app.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.demo1-app.middlewares=demo1-headers"
+      - "traefik.http.services.demo1-app.loadbalancer.server.port=8000"
+      # Auth router with rate-limit (higher priority)
+      - "traefik.http.routers.demo1-auth.rule=Host(`srv1553019.hstgr.cloud`) && PathPrefix(`/api/v1/auth`)"
+      - "traefik.http.routers.demo1-auth.entrypoints=websecure"
+      - "traefik.http.routers.demo1-auth.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.demo1-auth.middlewares=demo1-headers,demo1-ratelimit"
+      - "traefik.http.routers.demo1-auth.priority=10"
+      - "traefik.http.services.demo1-auth.loadbalancer.server.port=8000"
 
   frontend-dev:
     image: node:20-alpine
@@ -57,5 +56,7 @@ services:
     profiles:
       - dev
 
-volumes:
-  traefik-certs:
+networks:
+  traefik_net:
+    external: true
+    name: traefik_default  # run: docker network ls | grep traefik  — adjust if different
