@@ -28,19 +28,21 @@ services:
       # Inline rate-limit middleware for auth endpoints
       - "traefik.http.middlewares.demo1-ratelimit.rateLimit.average=10"
       - "traefik.http.middlewares.demo1-ratelimit.rateLimit.burst=5"
+      # Single service — both routers share it
+      - "traefik.http.services.demo1-backend.loadbalancer.server.port=8000"
       # Main app router
       - "traefik.http.routers.demo1-app.rule=Host(`srv1553019.hstgr.cloud`)"
       - "traefik.http.routers.demo1-app.entrypoints=websecure"
       - "traefik.http.routers.demo1-app.tls.certresolver=letsencrypt"
       - "traefik.http.routers.demo1-app.middlewares=demo1-headers"
-      - "traefik.http.services.demo1-app.loadbalancer.server.port=8000"
+      - "traefik.http.routers.demo1-app.service=demo1-backend"
       # Auth router with rate-limit (higher priority)
       - "traefik.http.routers.demo1-auth.rule=Host(`srv1553019.hstgr.cloud`) && PathPrefix(`/api/v1/auth`)"
       - "traefik.http.routers.demo1-auth.entrypoints=websecure"
       - "traefik.http.routers.demo1-auth.tls.certresolver=letsencrypt"
       - "traefik.http.routers.demo1-auth.middlewares=demo1-headers,demo1-ratelimit"
       - "traefik.http.routers.demo1-auth.priority=10"
-      - "traefik.http.services.demo1-auth.loadbalancer.server.port=8000"
+      - "traefik.http.routers.demo1-auth.service=demo1-backend"
 
   frontend-dev:
     image: node:20-alpine
