@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   useSchemaConfigs,
-  useCreateSchemaConfig,
   useUpdateSchemaConfig,
   useDeleteSchemaConfig,
   useApplySchemaConfig,
@@ -11,19 +10,9 @@ import type { SchemaConfig, FieldDef } from "../types";
 
 const FIELD_TYPES = ["text", "integer", "float", "boolean", "select", "textarea"];
 
-const emptyConfig = (): Omit<SchemaConfig, "id"> => ({
-  name: "",
-  format_type: "ini",
-  kv_separator: "=",
-  comment_chars: "#;",
-  field_defs: [],
-  is_default: 0,
-});
-
 export default function SchemaConfigPanel() {
   const navigate = useNavigate();
   const { data: configs, isLoading } = useSchemaConfigs();
-  const createConfig = useCreateSchemaConfig();
   const updateConfig = useUpdateSchemaConfig();
   const deleteConfig = useDeleteSchemaConfig();
   const applyConfig = useApplySchemaConfig();
@@ -31,7 +20,6 @@ export default function SchemaConfigPanel() {
   const [editing, setEditing] = useState<(Omit<SchemaConfig, "id"> & { id?: number }) | null>(null);
   const [applyMsg, setApplyMsg] = useState<string | null>(null);
 
-  const startNew = () => setEditing(emptyConfig());
   const startEdit = (cfg: SchemaConfig) =>
     setEditing({ ...cfg, field_defs: cfg.field_defs ?? [] });
 
@@ -41,8 +29,6 @@ export default function SchemaConfigPanel() {
     const data = { ...editing, field_defs: editing.field_defs ?? [] };
     if (editing.id) {
       await updateConfig.mutateAsync({ id: editing.id, data });
-    } else {
-      await createConfig.mutateAsync(data);
     }
     setEditing(null);
   };
@@ -102,15 +88,6 @@ export default function SchemaConfigPanel() {
 
         {!editing ? (
           <>
-            <div className="flex justify-end mb-4">
-              <button
-                onClick={startNew}
-                className="px-4 py-2 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
-              >
-                + Neue Konfiguration
-              </button>
-            </div>
-
             {isLoading && <p className="text-gray-500 text-center py-8">Lade...</p>}
             {!isLoading && (configs ?? []).length === 0 && (
               <p className="text-gray-400 text-center py-8">
@@ -167,7 +144,7 @@ export default function SchemaConfigPanel() {
           /* Edit form */
           <div className="bg-white rounded-lg border border-gray-200 p-6">
             <h2 className="font-semibold text-gray-800 mb-5">
-              {editing.id ? "Konfiguration bearbeiten" : "Neue Konfiguration"}
+              Konfiguration bearbeiten
             </h2>
             <div className="grid grid-cols-2 gap-4 mb-6">
               <div>

@@ -45,25 +45,25 @@ export default function CommentsPanel({ templateId }: Props) {
     user?.id === c.author.id || user?.is_admin;
 
   return (
-    <div className="mt-8 border-t border-gray-700 pt-6">
-      <h3 className="text-sm font-semibold text-gray-300 mb-4">
+    <div className="mt-8 border-t border-gray-200 pt-6">
+      <h3 className="text-sm font-semibold text-gray-700 mb-4">
         Kommentare ({comments.length})
       </h3>
 
-      {isLoading && <p className="text-gray-500 text-sm">Lade Kommentare…</p>}
+      {isLoading && <p className="text-gray-400 text-sm">Lade Kommentare…</p>}
 
       <div className="space-y-3 mb-4">
         {comments.map((c) => (
-          <div key={c.id} className="bg-gray-800 rounded-lg p-3">
+          <div key={c.id} className="bg-gray-50 rounded-lg p-3">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium text-gray-200">{c.author.display_name}</span>
+              <span className="text-sm font-medium text-gray-900">{c.author.display_name}</span>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-500">{formatDate(c.created_at)}</span>
+                <span className="text-xs text-gray-400">{formatDate(c.created_at)}</span>
                 {canDelete(c) && (
                   <button
                     onClick={() => deleteMutation.mutate(c.id)}
                     disabled={deleteMutation.isPending}
-                    className="text-gray-500 hover:text-red-400 transition-colors"
+                    className="text-gray-400 hover:text-red-500 transition-colors"
                     title="Kommentar löschen"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -74,11 +74,11 @@ export default function CommentsPanel({ templateId }: Props) {
                 )}
               </div>
             </div>
-            <p className="text-sm text-gray-300 whitespace-pre-wrap">{c.body}</p>
+            <p className="text-sm text-gray-700 whitespace-pre-wrap">{c.body}</p>
           </div>
         ))}
         {!isLoading && comments.length === 0 && (
-          <p className="text-sm text-gray-500">Noch keine Kommentare.</p>
+          <p className="text-sm text-gray-400">Noch keine Kommentare.</p>
         )}
       </div>
 
@@ -90,11 +90,11 @@ export default function CommentsPanel({ templateId }: Props) {
           placeholder="Kommentar schreiben…"
           rows={3}
           maxLength={2000}
-          className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
-                     placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none"
+          className="w-full bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900
+                     placeholder-gray-400 focus:outline-none focus:border-blue-500 resize-none"
         />
         {postError && (
-          <p className="text-xs text-red-400">{postError}</p>
+          <p className="text-xs text-red-600">{postError}</p>
         )}
         <div className="flex items-center justify-between">
           <span className="text-xs text-gray-500">{body.length}/2000</span>
