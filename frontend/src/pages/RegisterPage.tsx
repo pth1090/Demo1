@@ -39,7 +39,7 @@ export default function RegisterPage() {
     <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-white">HiTec-Zang</h1>
+          <h1 className="text-2xl font-bold text-white">HaiFisch</h1>
           <p className="text-gray-400 mt-1">Template Editor</p>
         </div>
 

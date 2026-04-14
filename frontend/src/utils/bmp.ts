@@ -45,7 +45,7 @@ export function bmpHexToPngDataUrl(hex: string): string | null {
 
 /**
  * Convert any image File to a 23×23 BMP hex string (uppercase).
- * 23×23 is the standard HiTec-Zang icon size.
+ * 23×23 is the standard HaiFisch icon size.
  */
 export function imageFileToBmpHex(file: File): Promise<string> {
   return new Promise((resolve, reject) => {

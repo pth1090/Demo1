@@ -66,7 +66,7 @@ export default function TemplateList() {
           <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center">
             <span className="text-white text-sm font-bold">HZ</span>
           </div>
-          <h1 className="text-xl font-semibold text-gray-900">HiTec-Zang Template Editor</h1>
+          <h1 className="text-xl font-semibold text-gray-900">HaiFisch Template Editor</h1>
         </div>
         <div className="flex items-center gap-3">
           <button

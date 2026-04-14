@@ -368,7 +368,7 @@ export default function TemplateEditor() {
     const push = (s: string | null, k: string, v: string | null) =>
       out.push({ section: s, key: k, value: v, field_order: order++ });
 
-    // 1. Header [HiTec-Zang]
+    // 1. Header [HiTec-Zang] (original .devt section name, must not be renamed)
     for (const f of template.fields.filter((f) => f.section === "HiTec-Zang")) {
       push(f.section, f.key, f.value);
     }

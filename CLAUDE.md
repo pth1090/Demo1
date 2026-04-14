@@ -7,7 +7,7 @@ This file provides guidance to AI assistants (Claude and others) working in this
 ## Repository Overview
 
 - **Repo**: pth1090/demo1
-- **Project**: HiTec-Zang Template Editor — a web-based editor for `.devt` driver template files
+- **Project**: HaiFisch Template Editor — a web-based editor for `.devt` driver template files
 - **Stack**: Python 3.11 + FastAPI (backend) · React 18 + Vite + Tailwind CSS (frontend) · SQLite
 - **Deployment**: Docker Compose (`docker compose up --build`)
 - **Primary branch**: `main`
@@ -171,4 +171,4 @@ bilingual fields (`Name` DE / `Name_ENU` EN), BMP symbol blob.
 
 ---
 
-*Last updated: 2026-04-11 — HiTec-Zang Template Editor initial implementation*
+*Last updated: 2026-04-14 — HaiFisch Template Editor*

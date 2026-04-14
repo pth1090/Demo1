@@ -1,5 +1,5 @@
 """
-Parser for the HiTec-Zang .devt file format.
+Parser for the HaiFisch .devt file format.
 
 Format overview:
   [HiTec-Zang]              - File header (SavedWithVersion, ExportDate)
