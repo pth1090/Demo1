@@ -7,10 +7,10 @@ This file provides guidance to AI assistants (Claude and others) working in this
 ## Repository Overview
 
 - **Repo**: pth1090/demo1
-- **Status**: Newly initialized — no source code exists yet.
-- **Primary branch**: `main` (no commits yet at time of writing)
-
-> When the first meaningful code is added, update this section with: project purpose, primary language/framework, and the problem it solves.
+- **Project**: HaiFisch Template Editor — a web-based editor for `.devt` driver template files
+- **Stack**: Python 3.11 + FastAPI (backend) · React 18 + Vite + Tailwind CSS (frontend) · SQLite
+- **Deployment**: Docker Compose (`docker compose up --build`)
+- **Primary branch**: `main`
 
 ---
 
@@ -18,66 +18,135 @@ This file provides guidance to AI assistants (Claude and others) working in this
 
 ```
 Demo1/
-└── CLAUDE.md          # This file — AI assistant guidance
+├── CLAUDE.md
+├── docker-compose.yml       # Production + dev profiles
+├── .env.example             # Environment variable template
+├── .gitignore
+├── backend/
+│   ├── Dockerfile           # Multi-stage: builds frontend then runs FastAPI
+│   ├── requirements.txt
+│   ├── main.py              # FastAPI app entry point, serves React SPA from /static
+│   ├── database.py          # SQLAlchemy async engine, WAL mode, get_db dependency
+│   ├── models.py            # ORM: Template, TemplateField, SchemaConfig
+│   ├── schemas.py           # Pydantic request/response schemas
+│   ├── routers/
+│   │   ├── templates.py     # CRUD, import (.devt upload), export (.devt download)
+│   │   └── schema_config.py # Schema config CRUD + /apply endpoint
+│   ├── services/
+│   │   ├── devt_parser.py   # Parses .devt INI-like format into structured fields
+│   │   └── devt_serializer.py # Writes fields back to .devt format
+│   ├── static/              # React build output (populated by `npm run build`)
+│   └── data/
+│       └── templates.db     # SQLite database (git-ignored)
+└── frontend/
+    ├── package.json
+    ├── vite.config.ts       # outDir → ../backend/static
+    ├── tailwind.config.ts
+    ├── src/
+    │   ├── main.tsx
+    │   ├── App.tsx          # React Router setup
+    │   ├── index.css        # Tailwind base
+    │   ├── api/client.ts    # Axios + typed API functions
+    │   ├── components/
+    │   │   ├── TemplateList.tsx      # Home page: list, search, import
+    │   │   ├── TemplateEditor.tsx    # Editor: Übersicht / Signale / Raw tabs
+    │   │   └── SchemaConfigPanel.tsx # Settings: define field schemas
+    │   ├── hooks/
+    │   │   ├── useTemplates.ts
+    │   │   └── useSchemaConfig.ts
+    │   └── types/index.ts
 ```
-
-Update this tree as directories and files are added.
-
----
-
-## Development Workflow
-
-### Branch Naming
-
-Feature branches follow the pattern `claude/<description>-<id>` (e.g., `claude/add-claude-documentation-KtLGs`). Use kebab-case descriptive names.
-
-### Git Practices
-
-- Commit early and often with clear, descriptive messages.
-- Prefer small, focused commits over large all-in-one commits.
-- Always push to the feature branch, never directly to `main` without a PR.
-- Use `git push -u origin <branch-name>` for first push of a branch.
-
-### Commit Message Style
-
-```
-<type>: <short imperative summary>
-
-<optional body explaining why, not what>
-```
-
-Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
-
----
-
-## Code Conventions
-
-> This section should be filled in once a language/framework is chosen. Document:
-> - Formatting tool and config (e.g., Prettier, Black, gofmt)
-> - Linter and rules (e.g., ESLint, Ruff, Clippy)
-> - Naming conventions (variables, files, functions)
-> - Import ordering
-> - Error handling patterns
-
----
-
-## Testing
-
-> Fill in once a test framework is set up. Document:
-> - Test runner and command (e.g., `npm test`, `pytest`, `go test ./...`)
-> - Where tests live relative to source (e.g., `__tests__/`, `*.test.ts`, `_test.go`)
-> - Required coverage thresholds
-> - How to run a single test vs. the full suite
 
 ---
 
 ## Build & Run
 
-> Fill in once a build system is configured. Document:
-> - Install dependencies command
-> - Build command
-> - Start / dev server command
-> - Environment variables required (reference `.env.example`, never commit secrets)
+### Production (single Docker container)
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+App available at `http://localhost:8000` (or `http://<server-ip>:8000` for colleagues).
+
+### Development (hot reload)
+
+```bash
+# Terminal 1 — Backend with live reload
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload
+
+# Terminal 2 — Frontend dev server (proxies /api → localhost:8000)
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend dev server at `http://localhost:5173`.
+
+### Build frontend only
+
+```bash
+cd frontend && npm run build   # outputs to ../backend/static/
+```
+
+---
+
+## Environment Variables (`.env`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `8000` | Backend listen port |
+| `DB_PATH` | `data/templates.db` | SQLite file path |
+| `LOG_LEVEL` | `info` | Uvicorn log level |
+
+---
+
+## API Reference
+
+All endpoints under `/api/v1/`. Interactive docs at `http://localhost:8000/docs`.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/templates` | List all templates |
+| POST | `/templates` | Create template |
+| GET | `/templates/{id}` | Get template with fields |
+| PUT | `/templates/{id}` | Update template |
+| DELETE | `/templates/{id}` | Delete template |
+| POST | `/templates/import` | Upload .devt file |
+| GET | `/templates/{id}/export` | Download .devt file |
+| POST | `/templates/parse-preview` | Parse .devt without saving |
+| GET/POST/PUT/DELETE | `/schema-configs/...` | Schema config CRUD |
+| POST | `/schema-configs/{id}/apply` | Re-parse all templates |
+| GET | `/health` | Health check |
+
+---
+
+## devt File Format
+
+The `.devt` format is INI-like with four section types:
+
+```
+[HiTec-Zang]          — File header (version, export date)
+[{GUID}]              — Device definition (main parameters)
+[...SIGNAL_NAME]      — Signal/channel definition
+[DeviceList]          — Device index
+```
+
+Special encoding: pipe-separated values (`key=val | key2=val2`), list fields
+(`In.ListCount` / `In.List0`), status blocks (`Status.Count` / `Status.Value0`),
+bilingual fields (`Name` DE / `Name_ENU` EN), BMP symbol blob.
+
+---
+
+## Code Conventions
+
+- **Python**: No formatter enforced; follow PEP 8. Async SQLAlchemy throughout.
+- **TypeScript**: Strict mode. React Query for server state. No Redux.
+- **Naming**: snake_case in Python, camelCase in TypeScript, kebab-case in filenames.
+- **No auth**: Internal tool — CORS allows all origins.
 
 ---
 
@@ -102,4 +171,4 @@ Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 
 ---
 
-*Last updated: 2026-04-11 — initial creation (empty repository)*
+*Last updated: 2026-04-14 — HaiFisch Template Editor*
